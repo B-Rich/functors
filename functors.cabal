@@ -39,6 +39,7 @@ library
     transformers
 
   exposed-modules:
+    Control.Functor.Concurrent
     Data.Functor.Algebra
     Data.Functor.NatTrans
     Data.Functor.List
