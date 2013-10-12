@@ -36,6 +36,11 @@ library
   build-depends:
     base >= 4       && < 5,
     free,
+    lifted-async,
+    lifted-base,
+    monad-control,
+    stm,
+    transformers-base,
     transformers
 
   exposed-modules:

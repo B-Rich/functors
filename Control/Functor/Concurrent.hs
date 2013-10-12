@@ -9,7 +9,6 @@
 module Control.Functor.Concurrent where
 
 import Control.Applicative
-import Control.Concurrent
 import Control.Concurrent.Async.Lifted
 import Control.Concurrent.STM
 import Control.Exception.Lifted
@@ -21,9 +20,6 @@ import Control.Monad.Trans.Control
 import Control.Monad.Trans.Free
 import Control.Monad.Trans.Reader
 import Data.Functor.Identity
-import Data.Tagged
-import Data.Time
-import Data.Traversable
 
 instance (MonadBase b m, Functor f) => MonadBase b (FreeT f m) where
     liftBase = liftBaseDefault
@@ -76,12 +72,12 @@ instance MonadBaseControl IO m => MonadBaseControl IO (ConcurrentT m) where
     restoreM (StMConcurrentT m) = ConcurrentT . restoreM $ m
 
 newtype ConcurrentPoolT s m a = ConcurrentPoolT
-    { getConcurrentPoolT :: ReaderT (TVar (Tagged s Int)) (ConcurrentT m) a }
+    { getConcurrentPoolT :: ReaderT (TVar Int) (ConcurrentT m) a }
 
 runConcurrentPoolT :: MonadIO m
                    => Int -> (forall s. ConcurrentPoolT s m a) -> m a
 runConcurrentPoolT count (ConcurrentPoolT m) = do
-    counter <- liftIO $ newTVarIO (Tagged count)
+    counter <- liftIO $ newTVarIO count
     runConcurrentT $ runReaderT m counter
 
 instance Monad m => Functor (ConcurrentPoolT s m) where
@@ -120,65 +116,64 @@ instance (MonadBaseControl IO m, MonadBase IO m, MonadIO m)
 instance (MonadBaseControl IO m, MonadIO m)
          => MonadBaseControl IO (ConcurrentPoolT s m) where
     newtype StM (ConcurrentPoolT s m) a =
-        StMConcurrentPoolT
-            (StM (ReaderT (TVar (Tagged s Int)) (ConcurrentT m)) a)
+        StMConcurrentPoolT (StM (ReaderT (TVar Int) (ConcurrentT m)) a)
     liftBaseWith f =
         ConcurrentPoolT $ liftBaseWith $ \runInBase -> f $ \k ->
             liftM StMConcurrentPoolT $ runInBase $ getConcurrentPoolT k
     restoreM (StMConcurrentPoolT m) = ConcurrentPoolT . restoreM $ m
 
-main :: IO ()
-main = do
-    putStrLn "Using the Monad instance, things happen serially"
-    start <- getCurrentTime
-    runConcurrentT $ do
-        delay "start 1" (return ()) "end 1"
-        delay "start 2" (return ()) "end 2"
-    stop <- getCurrentTime
-    print $ diffUTCTime stop start
+-- main :: IO ()
+-- main = do
+--     putStrLn "Using the Monad instance, things happen serially"
+--     start <- getCurrentTime
+--     runConcurrentT $ do
+--         delay "start 1" (return ()) "end 1"
+--         delay "start 2" (return ()) "end 2"
+--     stop <- getCurrentTime
+--     print $ diffUTCTime stop start
 
-    putStrLn "Using the Applicative instance, things happen concurrently"
-    start' <- getCurrentTime
-    print =<<
-        runConcurrentT
-            (sequenceA
-                [ delay "scompute 1" (return (1 :: Int)) "ecompute 1"
-                , delay "scompute 2" (return (2 :: Int)) "ecompute 2"
-                , delay "scompute 3" (return (3 :: Int)) "ecompute 3"
-                , delay "scompute 4" (return (4 :: Int)) "ecompute 4"
-                , delay "scompute 5" (return (5 :: Int)) "ecompute 5"
-                , delay "scompute 6" (return (6 :: Int)) "ecompute 6"
-                , delay "scompute 7" (return (7 :: Int)) "ecompute 7"
-                , delay "scompute 8" (return (8 :: Int)) "ecompute 8"
-                , delay "scompute 9" (return (9 :: Int)) "ecompute 9"
-                , delay "scompute 10" (return (10 :: Int)) "ecompute 10"
-                ])
-    stop' <- getCurrentTime
-    print $ diffUTCTime stop' start'
+--     putStrLn "Using the Applicative instance, things happen concurrently"
+--     start' <- getCurrentTime
+--     print =<<
+--         runConcurrentT
+--             (sequenceA
+--                 [ delay "scompute 1" (return (1 :: Int)) "ecompute 1"
+--                 , delay "scompute 2" (return (2 :: Int)) "ecompute 2"
+--                 , delay "scompute 3" (return (3 :: Int)) "ecompute 3"
+--                 , delay "scompute 4" (return (4 :: Int)) "ecompute 4"
+--                 , delay "scompute 5" (return (5 :: Int)) "ecompute 5"
+--                 , delay "scompute 6" (return (6 :: Int)) "ecompute 6"
+--                 , delay "scompute 7" (return (7 :: Int)) "ecompute 7"
+--                 , delay "scompute 8" (return (8 :: Int)) "ecompute 8"
+--                 , delay "scompute 9" (return (9 :: Int)) "ecompute 9"
+--                 , delay "scompute 10" (return (10 :: Int)) "ecompute 10"
+--                 ])
+--     stop' <- getCurrentTime
+--     print $ diffUTCTime stop' start'
 
-    putStrLn "Using a pool restricts the number of concurrent computations"
-    start'' <- getCurrentTime
-    print =<<
-        runConcurrentPoolT 5
-            (sequenceA
-                [ delay "scompute 1" (return (1 :: Int)) "ecompute 1"
-                , delay "scompute 2" (return (2 :: Int)) "ecompute 2"
-                , delay "scompute 3" (return (3 :: Int)) "ecompute 3"
-                , delay "scompute 4" (return (4 :: Int)) "ecompute 4"
-                , delay "scompute 5" (return (5 :: Int)) "ecompute 5"
-                , delay "scompute 6" (return (6 :: Int)) "ecompute 6"
-                , delay "scompute 7" (return (7 :: Int)) "ecompute 7"
-                , delay "scompute 8" (return (8 :: Int)) "ecompute 8"
-                , delay "scompute 9" (return (9 :: Int)) "ecompute 9"
-                , delay "scompute 10" (return (10 :: Int)) "ecompute 10"
-                ])
-    stop'' <- getCurrentTime
-    print $ diffUTCTime stop'' start''
-  where
-    delay :: MonadIO m => String -> m a -> String -> m a
-    delay before f after = do
-        liftIO $ putStrLn before
-        liftIO $ threadDelay 2000000
-        x <- f
-        liftIO $ putStrLn after
-        return x
+--     putStrLn "Using a pool restricts the number of concurrent computations"
+--     start'' <- getCurrentTime
+--     print =<<
+--         runConcurrentPoolT 5
+--             (sequenceA
+--                 [ delay "scompute 1" (return (1 :: Int)) "ecompute 1"
+--                 , delay "scompute 2" (return (2 :: Int)) "ecompute 2"
+--                 , delay "scompute 3" (return (3 :: Int)) "ecompute 3"
+--                 , delay "scompute 4" (return (4 :: Int)) "ecompute 4"
+--                 , delay "scompute 5" (return (5 :: Int)) "ecompute 5"
+--                 , delay "scompute 6" (return (6 :: Int)) "ecompute 6"
+--                 , delay "scompute 7" (return (7 :: Int)) "ecompute 7"
+--                 , delay "scompute 8" (return (8 :: Int)) "ecompute 8"
+--                 , delay "scompute 9" (return (9 :: Int)) "ecompute 9"
+--                 , delay "scompute 10" (return (10 :: Int)) "ecompute 10"
+--                 ])
+--     stop'' <- getCurrentTime
+--     print $ diffUTCTime stop'' start''
+--   where
+--     delay :: MonadIO m => String -> m a -> String -> m a
+--     delay before f after = do
+--         liftIO $ putStrLn before
+--         liftIO $ threadDelay 2000000
+--         x <- f
+--         liftIO $ putStrLn after
+--         return x
